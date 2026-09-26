@@ -108,7 +108,8 @@ jobs:
       # it already appends --config '{"bundle":{"createUpdaterArtifacts":false}}',
       # so no signing secret is required here.
       - name: Build AQBot.app
-        run: pnpm tauri build --bundles app
+        # --target is required so artifacts land under target/<triple>/release
+        run: pnpm tauri build --bundles app --target aarch64-apple-darwin
         env:
           NODE_OPTIONS: '--max_old_space_size=4096'
 
