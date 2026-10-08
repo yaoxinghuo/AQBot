@@ -52,12 +52,12 @@ describe('PermissionCard', () => {
     expect(screen.queryByText(/"command"/)).not.toBeInTheDocument();
   });
 
-  it('only offers allow once and deny for execute risk', () => {
+  it('offers allow once, allow always, and deny for execute risk', () => {
     renderCard();
 
     expect(screen.getByRole('button', { name: 'common.allowOnce' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'common.allowAlways' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'common.deny' })).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: 'common.allowAlways' })).not.toBeInTheDocument();
   });
 
   it('passes conversationId, toolUseId, and allow_once to the store', async () => {

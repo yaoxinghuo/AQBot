@@ -95,8 +95,10 @@ pub fn decide_permission(
     risk: RiskLevel,
     is_always_allowed: bool,
 ) -> PermissionAction {
-    // Cached "always allow" never covers MCP or Execute tools.
-    if is_always_allowed && allows_persistent_approval(risk) {
+    // Cached "always allow" covers every risk level — including Execute. The
+    // set is per-conversation and lives only in memory, so it never survives
+    // an app restart.
+    if is_always_allowed {
         return PermissionAction::AutoAllow;
     }
 
@@ -116,11 +118,6 @@ pub fn decide_permission(
         // Full access: everything auto-allowed
         (PermissionMode::FullAccess, _) => PermissionAction::AutoAllow,
     }
-}
-
-/// Whether "always allow" may be persisted for this risk.
-pub fn allows_persistent_approval(risk: RiskLevel) -> bool {
-    !matches!(risk, RiskLevel::Mcp | RiskLevel::Execute)
 }
 
 #[cfg(test)]
@@ -155,12 +152,10 @@ mod tests {
     }
 
     #[test]
-    fn execute_cannot_use_persistent_allow_or_cached_always_allowed() {
-        assert!(!allows_persistent_approval(RiskLevel::Execute));
-        assert!(allows_persistent_approval(RiskLevel::Write));
+    fn execute_can_use_cached_always_allowed() {
         assert_eq!(
             decide_permission(PermissionMode::Default, RiskLevel::Execute, true),
-            PermissionAction::RequireApproval
+            PermissionAction::AutoAllow
         );
         assert_eq!(
             decide_permission(PermissionMode::Default, RiskLevel::Write, true),
@@ -169,13 +164,13 @@ mod tests {
     }
 
     #[test]
-    fn mcp_tools_follow_session_mode_and_never_persistently_approve() {
+    fn mcp_tools_follow_session_mode_and_may_persistently_approve() {
         let risk = classify_tool_risk("mcp__server_query__0123456789abcdef");
 
         assert_eq!(risk, RiskLevel::Mcp);
         assert_eq!(
             decide_permission(PermissionMode::Default, risk, true),
-            PermissionAction::RequireApproval
+            PermissionAction::AutoAllow
         );
         assert_eq!(
             decide_permission(PermissionMode::AcceptEdits, risk, true),
@@ -185,6 +180,5 @@ mod tests {
             decide_permission(PermissionMode::FullAccess, risk, true),
             PermissionAction::AutoAllow
         );
-        assert!(!allows_persistent_approval(risk));
     }
 }

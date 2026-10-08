@@ -50,25 +50,11 @@ function timeoutFromInput(input: Record<string, unknown>): string | undefined {
   return undefined;
 }
 
-function defaultPermissionOptions(
-  riskLevel: AgentRiskLevel | undefined,
-  t: (key: string) => string,
-): PermissionOptionButton[] {
-  const allowOnce: PermissionOptionButton = {
-    id: 'allow_once',
-    label: t('common.allowOnce'),
-    variant: 'primary',
-  };
-  const deny: PermissionOptionButton = {
-    id: 'deny',
-    label: t('common.deny'),
-    variant: 'danger',
-  };
-  if (riskLevel === 'execute') return [allowOnce, deny];
+function defaultPermissionOptions(t: (key: string) => string): PermissionOptionButton[] {
   return [
-    allowOnce,
+    { id: 'allow_once', label: t('common.allowOnce'), variant: 'primary' },
     { id: 'allow_always', label: t('common.allowAlways'), variant: 'default' },
-    deny,
+    { id: 'deny', label: t('common.deny'), variant: 'danger' },
   ];
 }
 
@@ -111,7 +97,7 @@ const PermissionCard: React.FC<PermissionCardProps> = ({
     }
   };
 
-  const actionOptions: PermissionOptionButton[] = options ?? defaultPermissionOptions(riskLevel, t);
+  const actionOptions: PermissionOptionButton[] = options ?? defaultPermissionOptions(t);
   const command = commandFromInput(input);
   const timeout = timeoutFromInput(input);
   const riskText = riskLabel(riskLevel, t);

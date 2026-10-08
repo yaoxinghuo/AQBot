@@ -1,7 +1,5 @@
 use crate::AppState;
-use aqbot_agent::permission::{
-    allows_persistent_approval, classify_tool_risk, decide_permission, PermissionAction,
-};
+use aqbot_agent::permission::{classify_tool_risk, decide_permission, PermissionAction};
 use aqbot_agent::security::check_path_safety_with_runtime;
 use aqbot_core::inline_media::{InlineDataStreamCapture, InlineDataStreamFilter};
 use aqbot_core::repo::{agent_session, conversation, message, provider, tool_execution};
@@ -1132,9 +1130,19 @@ pub async fn agent_query(
                 return PermissionDecision::Deny("Agent cancelled".to_string());
             }
 
+            // Re-read the mode per tool check: `permission_mode` was snapshotted
+            // when this run started, so switching the dropdown mid-run would
+            // otherwise not take effect until the next message.
+            let live_mode = agent_session::get_agent_session_by_conversation_id(&db, &conv_id)
+                .await
+                .ok()
+                .flatten()
+                .map(|s| aqbot_agent::permission::PermissionMode::from_str(&s.permission_mode))
+                .unwrap_or(permission_mode);
+
             // Skill runtime writes are denied even in FullAccess. Other path
             // checks stay skipped in FullAccess.
-            let enforce_cwd = permission_mode
+            let enforce_cwd = live_mode
                 != aqbot_agent::permission::PermissionMode::FullAccess
                 && !cwd.is_empty();
             if skill_runtime.is_some() || enforce_cwd {
@@ -1149,19 +1157,17 @@ pub async fn agent_query(
                 }
             }
 
-            // 2. Decision matrix. Execute tools never honor a cached always-allow.
+            // 2. Decision matrix. A cached always-allow applies to every risk.
             let risk = classify_tool_risk(&tool_name);
             let display_tool_name =
                 super::agent_mcp::display_agent_tool_name(&mcp_display_names, &tool_name)
                     .to_string();
-            let is_always_allowed = if allows_persistent_approval(risk) {
+            let is_always_allowed = {
                 let map = always_allowed_map.lock().await;
                 map.get(&conv_id_allowed)
                     .is_some_and(|set| set.contains(&tool_name))
-            } else {
-                false
             };
-            match decide_permission(permission_mode, risk, is_always_allowed) {
+            match decide_permission(live_mode, risk, is_always_allowed) {
                 PermissionAction::AutoAllow => PermissionDecision::Allow,
                 PermissionAction::RequireApproval => {
                     // Create oneshot channel
@@ -1220,17 +1226,13 @@ pub async fn agent_query(
                         result = rx => match result {
                             Ok(decision_str) => match decision_str.as_str() {
                                 "allow_once" => PermissionDecision::Allow,
-                                "allow_always" if allows_persistent_approval(risk) => {
+                                "allow_always" => {
                                     always_allowed_map.lock().await
                                         .entry(conv_id_allowed.clone())
                                         .or_default()
                                         .insert(tool_name.clone());
                                     PermissionDecision::Allow
                                 }
-                                "allow_always" => PermissionDecision::Deny(
-                                    "Persistent allow is not permitted for execute tools"
-                                        .to_string(),
-                                ),
                                 "deny" => PermissionDecision::Deny(
                                     "User denied permission".to_string(),
                                 ),
