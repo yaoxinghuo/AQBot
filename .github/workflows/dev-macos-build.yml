@@ -2,12 +2,12 @@ name: Dev macOS Build (unsigned)
 
 # Builds an unsigned (ad-hoc signed) AQBot.app for personal testing on forks
 # where the release signing secrets are unavailable. Runs automatically on
-# pushes to the fix branch and can be triggered manually.
+# pushes to the personal branch and can be triggered manually.
 
 on:
   push:
     branches:
-      - 'fix/agent-stream-reply-truncation'
+      - 'personal'
   workflow_dispatch:
 
 permissions:
