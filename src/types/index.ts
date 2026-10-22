@@ -32,6 +32,8 @@ export interface ProviderConfig {
   custom_headers: string | null;
   icon: string | null;
   builtin_id: string | null;
+  /** Custom gateway prefix for `prefix/model`; null derives it from the name. */
+  gateway_prefix?: string | null;
   sort_order: number;
   created_at: number;
   updated_at: number;
@@ -80,6 +82,7 @@ export interface UpdateProviderInput {
   proxy_config?: ProviderProxyConfig;
   custom_headers?: string | null;
   icon?: string | null;
+  gateway_prefix?: string | null;
   sort_order?: number;
 }
 
@@ -776,6 +779,7 @@ export type AgentWorkspaceNameStrategy =
   | 'created_datetime';
 export type ChatMessageAreaStyle = 'none' | 'background' | 'border';
 export type SettingsSidebarDensity = 'compact' | 'standard' | 'spacious';
+export type FontSmoothing = 'auto' | 'antialiased';
 export type TrayIconStyle = 'color' | 'monochrome';
 
 /** Toggleable title bar action icons (settings is always visible). */
@@ -807,6 +811,7 @@ export interface AppSettings {
   font_weight: number;
   font_family: string;
   font_style: string;
+  font_smoothing: FontSmoothing;
   code_font_family: string;
   chat_font_size: number;
   chat_line_height: number;
@@ -882,6 +887,8 @@ export interface AppSettings {
   gateway_force_ssl: boolean;
   /** When true, pool same model id/alias across providers and fail over. */
   gateway_auto_model_routing?: boolean;
+  /** When true, /v1/models always lists model ids as `provider/model`. */
+  gateway_model_provider_prefix?: boolean;
   // Desktop integration
   always_on_top?: boolean;
   tray_enabled?: boolean;

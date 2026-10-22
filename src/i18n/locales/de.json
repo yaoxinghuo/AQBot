@@ -638,7 +638,16 @@
     "codexRepairVisibilityTargetProvider": "Aktueller model_provider: {{provider}}",
     "autoModelRouting": "Automatisches Modellrouting",
     "autoModelRoutingTooltip": "Bündeln Sie dieselbe Modell-ID oder denselben Alias für alle Anbieter und führen Sie bei Ratenbegrenzungen oder Ausfällen ein Failover durch.",
-    "autoModelRoutingDesc": "Wenn diese Option aktiviert ist, wird dieselbe Modell-ID oder derselbe Alias ​​bei mehreren Anbietern als ein Modell angezeigt. Das Gateway wählt einen Upstream nach Anbieterreihenfolge und Verfügbarkeit aus und führt bei Ratenbegrenzungen oder Ausfällen ein Failover durch. Verwenden Sie Provider/Model, um einen einzelnen Upstream anzupinnen."
+    "autoModelRoutingDesc": "Wenn diese Option aktiviert ist, wird dieselbe Modell-ID oder derselbe Alias ​​bei mehreren Anbietern als ein Modell angezeigt. Das Gateway wählt einen Upstream nach Anbieterreihenfolge und Verfügbarkeit aus und führt bei Ratenbegrenzungen oder Ausfällen ein Failover durch. Verwenden Sie Provider/Model, um einen einzelnen Upstream anzupinnen.",
+    "modelProviderPrefix": "Modell-IDs mit Anbieter-Präfix versehen",
+    "modelProviderPrefixTooltip": "Stellt jeder Modell-ID in der Modellliste ein Anbieter-Präfix voran, damit Clients die Herkunft jedes Modells erkennen können.",
+    "modelProviderPrefixDesc": "Wenn aktiviert, listet /v1/models jede Modell-ID im Format Anbieter/Modell auf (z. B. deepseek/deepseek-chat). Das Präfix wird standardmäßig aus dem Anbieternamen abgeleitet und kann unten angepasst werden. Anfragen akzeptieren weiterhin Modell-IDs ohne Präfix, und das Feld model in Antworten gibt den in der Anfrage verwendeten Namen zurück.",
+    "providerPrefixes": "Anbieter-Präfixe",
+    "providerPrefixesDesc": "Passen Sie das Anbieter-Präfix in Anbieter/Modell an. Leer lassen, um das aus dem Anbieternamen erzeugte Präfix zu verwenden (als Platzhalter angezeigt).",
+    "providerPrefixesEmpty": "Keine aktivierten Anbieter",
+    "providerPrefixInvalid": "Präfixe dürfen nur Kleinbuchstaben, Ziffern und einzelne Bindestriche enthalten und höchstens 32 Zeichen lang sein",
+    "providerPrefixDuplicate": "Dieses Präfix wird bereits von einem anderen Anbieter verwendet",
+    "providerPrefixInputLabel": "Gateway-Präfix für {{name}}"
   },
   "settings": {
     "contextStrategy": "Kontextstrategie",
@@ -848,6 +857,8 @@
     "themeSystem": "System",
     "autoStart": "Bei Systemstart starten",
     "showOnStart": "Beim Start anzeigen",
+    "showOnStartTrayFallbackHint": "Der Systemtray ist deaktiviert, daher startet AQBot minimiert, damit das Fenster erreichbar bleibt",
+    "startMinimizedRequiresShowOnStart": "Erfordert „Beim Start anzeigen“",
     "trayEnabled": "Systemtray anzeigen",
     "trayEnabledDesc": "Wenn aus, wird das Tray-Symbol vollständig ausgeblendet. Minimieren in den Tray und Freigeben der Oberfläche bleiben gespeichert, sind aber erst wieder nutzbar, wenn der Tray aktiviert ist.",
     "trayCreateFailed": "Systemtray konnte nicht erstellt werden. Das Schließen des Fensters beendet die App.",
@@ -877,6 +888,10 @@
     "fontFaceExtraBold": "Extrafett",
     "fontFaceBlack": "Ultrafett",
     "fontFamily": "UI-Schriftart",
+    "fontSmoothing": "Schriftglättung",
+    "fontSmoothingDesc": "„Antialiasing“ zeichnet Glyphen feiner und schärfer in Graustufen; wirkt der Text zu blass, zurück zu „Standard“.",
+    "fontSmoothingAuto": "Standard",
+    "fontSmoothingAntialiased": "Antialiasing",
     "codeFontFamily": "Code-Schriftart",
     "chatFontSize": "Chat-Schriftgröße",
     "chatLineHeight": "Chat-Zeilenhöhe",
@@ -2768,6 +2783,8 @@
     "preparingConversation": "Gespräch vorbereiten…"
   },
   "errors": {
+    "AGENT_REGEN_MESSAGE_MISSING": "Die Benutzernachricht zur erneuten Generierung wurde nicht gefunden",
+    "AGENT_HISTORY_UNTRACKED": "Dieser Agent-Verlauf enthält keine Nachrichtenkennungen, mit denen sich die zu wiederholende Runde sicher zuordnen lässt. Leeren Sie den Agent-Kontext und versuchen Sie es erneut",
     "MEMORY_L1_TOO_LARGE": "Das dauerhafte Gedächtnis ist {{bytes}} Bytes groß; das Limit ist {{limit}}.",
     "MEMORY_L1_REVISION_CONFLICT": "Das dauerhafte Gedächtnis wurde woanders aktualisiert. Die neueste Version wurde neu geladen.",
     "MEMORY_L1_READ_FAILED": "Das dauerhafte Gedächtnis konnte nicht gelesen werden. Senden ist gesperrt, bis das behoben ist.",

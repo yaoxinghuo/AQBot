@@ -638,7 +638,16 @@
     "codexRepairVisibilityTargetProvider": "model_provider actual: {{provider}}",
     "autoModelRouting": "Enrutamiento automático de modelos",
     "autoModelRoutingTooltip": "Agrupe el mismo ID de modelo o alias entre proveedores y realice conmutación por error en límites de velocidad o interrupciones.",
-    "autoModelRoutingDesc": "Cuando está habilitado, el mismo ID de modelo o alias en múltiples proveedores se expone como un solo modelo. La puerta de enlace elige un flujo ascendente según el orden y la disponibilidad del proveedor, y conmuta por error en caso de límites de velocidad o interrupciones. Utilice proveedor/modelo para fijar un único flujo ascendente."
+    "autoModelRoutingDesc": "Cuando está habilitado, el mismo ID de modelo o alias en múltiples proveedores se expone como un solo modelo. La puerta de enlace elige un flujo ascendente según el orden y la disponibilidad del proveedor, y conmuta por error en caso de límites de velocidad o interrupciones. Utilice proveedor/modelo para fijar un único flujo ascendente.",
+    "modelProviderPrefix": "Anteponer el proveedor a los ID de modelo",
+    "modelProviderPrefixTooltip": "Añade un prefijo de proveedor a cada ID de modelo de la lista para que los clientes puedan saber de dónde procede cada modelo.",
+    "modelProviderPrefixDesc": "Cuando está habilitado, /v1/models muestra cada ID de modelo con el formato proveedor/modelo (p. ej., deepseek/deepseek-chat). El prefijo se deriva por defecto del nombre del proveedor y puede personalizarse abajo. Las solicitudes siguen aceptando ID de modelo sin prefijo, y el campo model de las respuestas devuelve el nombre usado en la solicitud.",
+    "providerPrefixes": "Prefijos de proveedores",
+    "providerPrefixesDesc": "Personaliza el prefijo de proveedor usado en proveedor/modelo. Déjalo vacío para usar el prefijo generado a partir del nombre del proveedor (se muestra como marcador de posición).",
+    "providerPrefixesEmpty": "No hay proveedores habilitados",
+    "providerPrefixInvalid": "Los prefijos solo pueden contener letras minúsculas, dígitos y guiones simples, con un máximo de 32 caracteres",
+    "providerPrefixDuplicate": "Este prefijo ya lo usa otro proveedor",
+    "providerPrefixInputLabel": "Prefijo de la puerta de enlace para {{name}}"
   },
   "settings": {
     "contextStrategy": "Estrategia de contexto",
@@ -848,6 +857,8 @@
     "themeSystem": "Sistema",
     "autoStart": "Iniciar al arrancar",
     "showOnStart": "Mostrar al iniciar",
+    "showOnStartTrayFallbackHint": "La bandeja del sistema está desactivada, por lo que AQBot se iniciará minimizado para que la ventana siga accesible",
+    "startMinimizedRequiresShowOnStart": "Requiere «Mostrar al iniciar»",
     "trayEnabled": "Mostrar la bandeja del sistema",
     "trayEnabledDesc": "Al desactivarlo, el icono desaparece. Minimizar a la bandeja y liberar la interfaz se conservan, pero no estarán disponibles hasta reactivar la bandeja.",
     "trayCreateFailed": "No se pudo crear la bandeja del sistema. Cerrar la ventana saldrá de la aplicación.",
@@ -877,6 +888,10 @@
     "fontFaceExtraBold": "Extra negrita",
     "fontFaceBlack": "Negro",
     "fontFamily": "Fuente de la interfaz",
+    "fontSmoothing": "Suavizado de fuente",
+    "fontSmoothingDesc": "«Antialiasing» dibuja glifos más finos y nítidos en escala de grises; vuelve a «Predeterminado» si el texto se ve demasiado claro.",
+    "fontSmoothingAuto": "Predeterminado",
+    "fontSmoothingAntialiased": "Antialiasing",
     "codeFontFamily": "Fuente de código",
     "chatFontSize": "Tamaño de fuente del chat",
     "chatLineHeight": "Altura de línea del chat",
@@ -2768,6 +2783,8 @@
     "preparingConversation": "Preparando conversación…"
   },
   "errors": {
+    "AGENT_REGEN_MESSAGE_MISSING": "No se encontró el mensaje del usuario que se debe regenerar",
+    "AGENT_HISTORY_UNTRACKED": "Este historial del Agent no tiene identificadores de mensaje para localizar con seguridad el turno que se debe repetir. Borra el contexto del Agent antes de volver a intentarlo",
     "MEMORY_L1_TOO_LARGE": "La memoria permanente ocupa {{bytes}} bytes; el límite es {{limit}}.",
     "MEMORY_L1_REVISION_CONFLICT": "La memoria permanente se actualizó en otro sitio. Se recargó la versión más reciente.",
     "MEMORY_L1_READ_FAILED": "No se pudo leer la memoria permanente. El envío queda bloqueado hasta resolverlo.",

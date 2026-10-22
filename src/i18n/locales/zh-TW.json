@@ -638,7 +638,16 @@
     "codexRepairVisibilityTargetProvider": "目前 model_provider：{{provider}}",
     "autoModelRouting": "自動模型路由",
     "autoModelRoutingTooltip": "將多個服務商上相同的模型 ID 或別名聚集成一個，並在限流/故障時自動切換。",
-    "autoModelRoutingDesc": "開啟後，當多個服務商配置了相同的模型 ID 或相同的別名時，網關對外呈現為一個模型名，並按服務商排序與可用性自動選擇上游；限流或故障時會嘗試其他來源。使用「服務商/模型」可強制指定單一上游。"
+    "autoModelRoutingDesc": "開啟後，當多個服務商配置了相同的模型 ID 或相同的別名時，網關對外呈現為一個模型名，並按服務商排序與可用性自動選擇上游；限流或故障時會嘗試其他來源。使用「服務商/模型」可強制指定單一上游。",
+    "modelProviderPrefix": "模型 ID 加上服務商前綴",
+    "modelProviderPrefixTooltip": "在模型清單中為每個模型 ID 加上服務商前綴，方便在用戶端中區分模型來源。",
+    "modelProviderPrefixDesc": "開啟後，/v1/models 回傳的模型 ID 統一為「服務商/模型」格式（如 deepseek/deepseek-chat），前綴預設由服務商名稱產生，也可在下方自訂。請求時仍可直接使用不含前綴的模型 ID，回應中的 model 欄位會回傳請求時使用的名稱。",
+    "providerPrefixes": "服務商前綴",
+    "providerPrefixesDesc": "自訂「服務商/模型」中的服務商前綴，留空則使用由服務商名稱自動產生的前綴（顯示為預留位置文字）。",
+    "providerPrefixesEmpty": "目前沒有已啟用的服務商",
+    "providerPrefixInvalid": "前綴只能包含小寫字母、數字和單一連字號，且不超過 32 個字元",
+    "providerPrefixDuplicate": "此前綴已被其他服務商使用",
+    "providerPrefixInputLabel": "{{name}} 的閘道前綴"
   },
   "settings": {
     "contextStrategy": "上下文策略",
@@ -848,6 +857,8 @@
     "themeSystem": "跟隨系統",
     "autoStart": "開機自動啟動",
     "showOnStart": "啟動時顯示視窗",
+    "showOnStartTrayFallbackHint": "系統匣已關閉，為了能找回視窗，啟動時將改為最小化",
+    "startMinimizedRequiresShowOnStart": "需先開啟「啟動時顯示視窗」",
     "trayEnabled": "顯示系統匣",
     "trayEnabledDesc": "關閉後完全不顯示系統匣圖示。關閉時最小化至系統匣與釋放介面行程會暫時無法使用，原值會保留。",
     "trayCreateFailed": "無法建立系統匣，關閉視窗將結束應用程式。",
@@ -877,6 +888,10 @@
     "fontFaceExtraBold": "特粗",
     "fontFaceBlack": "超粗",
     "fontFamily": "介面字型",
+    "fontSmoothing": "字體抗鋸齒",
+    "fontSmoothingDesc": "「抗鋸齒」以灰階方式渲染字形，筆畫更纖細銳利；若覺得偏淡可保持「預設」。",
+    "fontSmoothingAuto": "預設",
+    "fontSmoothingAntialiased": "抗鋸齒",
     "codeFontFamily": "程式碼字型",
     "chatFontSize": "對話字型大小",
     "chatLineHeight": "對話行高",
@@ -2768,6 +2783,8 @@
     "preparingConversation": "正在準備對話…"
   },
   "errors": {
+    "AGENT_REGEN_MESSAGE_MISSING": "找不到要重新產生的使用者訊息",
+    "AGENT_HISTORY_UNTRACKED": "此 Agent 歷史缺少訊息識別碼，無法安全定位重送回合，請先清空 Agent 上下文再重試",
     "MEMORY_L1_TOO_LARGE": "常駐記憶為 {{bytes}} 位元組，上限是 {{limit}}。",
     "MEMORY_L1_REVISION_CONFLICT": "常駐記憶已在其他地方更新，已重新載入最新版本。",
     "MEMORY_L1_READ_FAILED": "無法讀取常駐記憶，修復前不能傳送。",

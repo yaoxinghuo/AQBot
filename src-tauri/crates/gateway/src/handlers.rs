@@ -8,7 +8,7 @@ use axum::{
 };
 use futures::StreamExt;
 use serde_json::json;
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::convert::Infallible;
 use std::time::Instant;
 use tokio_stream::wrappers::ReceiverStream;
@@ -33,6 +33,9 @@ pub async fn health_check() -> impl IntoResponse {
 /// - **auto routing on**: emit a single bare name with `owned_by: "aqbot"`, and
 ///   still emit namespaced `public_id/name` entries so clients can pin a source.
 ///
+/// With `gateway_model_provider_prefix` on, non-colliding names are also
+/// emitted as `public_id/name`. Bare names remain accepted on requests.
+///
 /// Results are sorted deterministically by displayed model ID, then owner.
 pub async fn list_models(State(state): State<GatewayAppState>) -> impl IntoResponse {
     let providers = match aqbot_core::repo::provider::list_providers(&state.db).await {
@@ -46,12 +49,15 @@ pub async fn list_models(State(state): State<GatewayAppState>) -> impl IntoRespo
         }
     };
 
-    let auto_routing = aqbot_core::repo::settings::get_settings(&state.db)
+    let settings = aqbot_core::repo::settings::get_settings(&state.db)
         .await
-        .map(|s| s.gateway_auto_model_routing)
-        .unwrap_or(false);
+        .unwrap_or_default();
 
-    let models = build_gateway_model_list(&providers, auto_routing);
+    let models = build_gateway_model_list(
+        &providers,
+        settings.gateway_auto_model_routing,
+        settings.gateway_model_provider_prefix,
+    );
 
     Json(json!({
         "object": "list",
@@ -64,6 +70,7 @@ pub async fn list_models(State(state): State<GatewayAppState>) -> impl IntoRespo
 pub(crate) fn build_gateway_model_list(
     providers: &[ProviderConfig],
     auto_routing: bool,
+    always_prefix: bool,
 ) -> Vec<serde_json::Value> {
     use crate::auto_route::request_name_provider_counts;
 
@@ -85,37 +92,26 @@ pub(crate) fn build_gateway_model_list(
 
             for name in names {
                 let count = *name_counts.get(&name).unwrap_or(&0);
-                if auto_routing && count > 1 {
-                    if emitted_aggregated.insert(name.clone()) {
-                        models.push(json!({
-                            "id": name,
-                            "object": "model",
-                            "created": provider.created_at,
-                            "owned_by": "aqbot",
-                        }));
-                    }
-                    // Always keep namespaced pin entry when auto-routing aggregates.
-                    models.push(json!({
-                        "id": format!("{}/{}", public_id, name),
-                        "object": "model",
-                        "created": provider.created_at,
-                        "owned_by": provider.name,
-                    }));
-                } else if count > 1 {
-                    models.push(json!({
-                        "id": format!("{}/{}", public_id, name),
-                        "object": "model",
-                        "created": provider.created_at,
-                        "owned_by": provider.name,
-                    }));
-                } else {
+                if auto_routing && count > 1 && emitted_aggregated.insert(name.clone()) {
                     models.push(json!({
                         "id": name,
                         "object": "model",
                         "created": provider.created_at,
-                        "owned_by": provider.name,
+                        "owned_by": "aqbot",
                     }));
                 }
+                // Colliding names always keep a namespaced pin entry.
+                let id = if always_prefix || count > 1 {
+                    format!("{}/{}", public_id, name)
+                } else {
+                    name
+                };
+                models.push(json!({
+                    "id": id,
+                    "object": "model",
+                    "created": provider.created_at,
+                    "owned_by": provider.name,
+                }));
             }
         }
     }
@@ -140,29 +136,30 @@ pub async fn chat_completions(
     let start_time = Instant::now();
 
     // Fetch providers once — used for both model-field parsing and resolution.
-    // Filter to only chat-completions-compatible provider types.
-    let providers: Vec<ProviderConfig> =
-        match aqbot_core::repo::provider::list_providers(&state.db).await {
-            Ok(p) => p
-                .into_iter()
-                .filter(|p| {
-                    matches!(
-                        p.provider_type,
-                        ProviderType::OpenAI
-                            | ProviderType::DeepSeek
-                            | ProviderType::XAI
-                            | ProviderType::GLM
-                            | ProviderType::SiliconFlow
-                            | ProviderType::Custom
-                    )
-                })
-                .collect(),
-            Err(e) => {
-                return error_response(StatusCode::INTERNAL_SERVER_ERROR, &e.to_string());
-            }
-        };
-    let public_id_map = build_provider_public_id_map(&providers);
+    // Public IDs are computed over all providers so they match `/v1/models`;
+    // routing is then restricted to chat-completions-compatible provider types.
+    let all_providers = match aqbot_core::repo::provider::list_providers(&state.db).await {
+        Ok(p) => p,
+        Err(e) => {
+            return error_response(StatusCode::INTERNAL_SERVER_ERROR, &e.to_string());
+        }
+    };
+    let public_id_map = build_provider_public_id_map(&all_providers);
     let known_public_ids: HashSet<String> = public_id_map.values().cloned().collect();
+    let providers: Vec<ProviderConfig> = all_providers
+        .into_iter()
+        .filter(|p| {
+            matches!(
+                p.provider_type,
+                ProviderType::OpenAI
+                    | ProviderType::DeepSeek
+                    | ProviderType::XAI
+                    | ProviderType::GLM
+                    | ProviderType::SiliconFlow
+                    | ProviderType::Custom
+            )
+        })
+        .collect();
 
     // Parse model field: supports "provider_public_id/model_id" (preferred),
     // or bare "model_id" / alias.
@@ -244,6 +241,11 @@ pub async fn chat_completions(
         let mut attempt_request = request.clone();
         // Always send the real upstream model id.
         attempt_request.model = model_id.clone();
+        let response_model = crate::response_model::response_model_name(
+            global_settings.gateway_model_provider_prefix,
+            &request.model,
+            &model_id,
+        );
 
         if attempt_request.stream {
             // Streaming: try until we get a stream handle; mid-stream failures
@@ -256,6 +258,7 @@ pub async fn chat_completions(
                 &gateway_key,
                 &provider.id,
                 &model_id,
+                response_model.as_deref(),
                 start_time,
             )
             .await;
@@ -290,6 +293,7 @@ pub async fn chat_completions(
             &gateway_key,
             &provider.id,
             &model_id,
+            response_model.as_deref(),
             start_time,
         )
         .await
@@ -350,10 +354,11 @@ async fn try_non_stream(
     gateway_key: &GatewayKey,
     provider_id: &str,
     model_id: &str,
+    response_model: Option<&str>,
     start_time: Instant,
 ) -> Result<axum::response::Response, String> {
     match adapter.chat(ctx, request).await {
-        Ok(response) => {
+        Ok(mut response) => {
             let _ = aqbot_core::repo::gateway::record_usage(
                 &state.db,
                 &gateway_key.id,
@@ -381,6 +386,9 @@ async fn try_non_stream(
             )
             .await;
 
+            if let Some(name) = response_model {
+                response.model = name.to_string();
+            }
             Ok(Json(build_non_stream_response_body(&response)).into_response())
         }
         Err(e) => Err(e.to_string()),
@@ -395,9 +403,10 @@ async fn handle_stream(
     gateway_key: &GatewayKey,
     provider_id: &str,
     model_id: &str,
+    response_model: Option<&str>,
     start_time: Instant,
 ) -> axum::response::Response {
-    let model_str = model_id.to_string();
+    let model_str = response_model.unwrap_or(model_id).to_string();
     let mut stream = adapter.chat_stream(ctx, request);
 
     let (tx, rx) = tokio::sync::mpsc::channel::<Result<Event, Infallible>>(32);
@@ -622,73 +631,66 @@ fn provider_slug(name: &str) -> String {
         .join("-")
 }
 
-/// Build a `provider_internal_id → public_id` map for all enabled providers.
-///
-/// The public ID is the name slug (see [`provider_slug`]).  When two or more
-/// enabled providers share the same base slug (e.g. `"OpenAI"` and `"Open AI"`
-/// both normalise to `"openai"`), a numeric suffix is appended (`-2`, `-3`, …)
-/// in **internal-ID–sorted order** so the result is unique and deterministic.
-pub(crate) fn build_provider_public_id_map(
-    providers: &[ProviderConfig],
-) -> HashMap<String, String> {
-    // Group enabled providers by their base slug.
-    let mut slug_groups: HashMap<String, Vec<String>> = HashMap::new();
-    for p in providers.iter().filter(|p| p.enabled) {
-        slug_groups
-            .entry(provider_slug(&p.name))
-            .or_default()
-            .push(p.id.clone());
+/// Base public-ID slug for a provider: the name slug, or the provider type when
+/// the name has no ASCII alphanumerics (e.g. "深度求索" → `"deepseek"`).
+fn provider_base_slug(provider: &ProviderConfig) -> String {
+    let slug = provider_slug(&provider.name);
+    if slug.is_empty() {
+        provider_slug(provider_type_to_str(&provider.provider_type))
+    } else {
+        slug
     }
-
-    let mut map = HashMap::new();
-    for (base_slug, mut ids) in slug_groups {
-        if ids.len() == 1 {
-            map.insert(ids.remove(0), base_slug);
-        } else {
-            // Stable tie-breaking by internal ID (lexicographic).
-            ids.sort();
-            for (i, id) in ids.into_iter().enumerate() {
-                let public_id = if i == 0 {
-                    base_slug.clone()
-                } else {
-                    format!("{}-{}", base_slug, i + 1)
-                };
-                map.insert(id, public_id);
-            }
-        }
-    }
-    map
 }
 
-/// Build a `(provider_internal_id, model_id) → display_id` map for all
-/// enabled models across all enabled providers.
+/// Build a `provider_internal_id → public_id` map for all enabled providers.
 ///
-/// Display rules:
-/// - If a `model_id` is **globally unique** across enabled providers → emit bare `model_id`.
-/// - If the same `model_id` appears on **multiple** enabled providers → emit
-///   `public_provider_id/model_id` using the ID from [`build_provider_public_id_map`].
-fn build_model_display_map(providers: &[ProviderConfig]) -> HashMap<(String, String), String> {
-    let public_id_map = build_provider_public_id_map(providers);
+/// Always build it from the full provider list (not a protocol-filtered
+/// subset) so the IDs shown by `/v1/models` resolve on every endpoint.
+///
+/// A provider's custom `gateway_prefix` wins when set and valid. Otherwise the
+/// public ID is the base slug (see [`provider_base_slug`]).  When two or more
+/// enabled providers share the same base slug (e.g. `"OpenAI"` and `"Open AI"`
+/// both normalise to `"openai"`), a numeric suffix is appended (`-2`, `-3`, …)
+/// in **internal-ID–sorted order**; IDs already taken by custom prefixes are
+/// skipped, so the result is unique and deterministic.
+pub fn build_provider_public_id_map(providers: &[ProviderConfig]) -> HashMap<String, String> {
+    let mut enabled: Vec<&ProviderConfig> = providers.iter().filter(|p| p.enabled).collect();
+    enabled.sort_by(|a, b| a.id.cmp(&b.id));
 
-    // Count how many enabled providers expose each model_id.
-    let mut model_id_counts: HashMap<String, usize> = HashMap::new();
-    for provider in providers.iter().filter(|p| p.enabled) {
-        for model in provider.models.iter().filter(|m| m.enabled) {
-            *model_id_counts.entry(model.model_id.clone()).or_default() += 1;
+    let mut map = HashMap::new();
+    let mut taken: HashSet<String> = HashSet::new();
+    let mut slug_groups: BTreeMap<String, Vec<String>> = BTreeMap::new();
+    for p in enabled {
+        let custom = p
+            .gateway_prefix
+            .as_deref()
+            .filter(|prefix| aqbot_core::repo::provider::is_valid_gateway_prefix(prefix));
+        match custom {
+            Some(prefix) if taken.insert(prefix.to_string()) => {
+                map.insert(p.id.clone(), prefix.to_string());
+            }
+            _ => slug_groups
+                .entry(provider_base_slug(p))
+                .or_default()
+                .push(p.id.clone()),
         }
     }
 
-    let mut map = HashMap::new();
-    for provider in providers.iter().filter(|p| p.enabled) {
-        let public_id = public_id_map.get(&provider.id).cloned().unwrap_or_default();
-        for model in provider.models.iter().filter(|m| m.enabled) {
-            let count = *model_id_counts.get(&model.model_id).unwrap_or(&0);
-            let display_id = if count > 1 {
-                format!("{}/{}", public_id, model.model_id)
-            } else {
-                model.model_id.clone()
+    for (base_slug, ids) in slug_groups {
+        let mut n = 1;
+        for id in ids {
+            let public_id = loop {
+                let candidate = if n == 1 {
+                    base_slug.clone()
+                } else {
+                    format!("{}-{}", base_slug, n)
+                };
+                n += 1;
+                if taken.insert(candidate.clone()) {
+                    break candidate;
+                }
             };
-            map.insert((provider.id.clone(), model.model_id.clone()), display_id);
+            map.insert(id, public_id);
         }
     }
     map
@@ -708,15 +710,18 @@ pub(crate) struct ParsedModel {
 ///
 /// Accepted formats:
 /// 1. `provider_public_id/model_id`  — preferred namespaced form; only
-///    recognised when the left segment is a **known** public provider ID.
+///    recognised when the left segment is a **known** public provider ID
+///    (compared case-insensitively, e.g. `DeepSeek/deepseek-chat`).
 ///    This prevents misparsing native model IDs that contain `/` (e.g.
 ///    `"accounts/fireworks/models/qwen3"`).
 /// 2. `model_id`                     — bare; resolved by unique match across providers
 pub(crate) fn parse_model_field(model: &str, known_public_ids: &HashSet<String>) -> ParsedModel {
     if let Some((left, right)) = model.split_once('/') {
-        if known_public_ids.contains(left) {
+        // Public IDs are always lowercase ASCII slugs.
+        let left = left.to_ascii_lowercase();
+        if known_public_ids.contains(&left) {
             return ParsedModel {
-                provider_hint: Some(left.to_string()),
+                provider_hint: Some(left),
                 model_id: right.to_string(),
             };
         }
@@ -1067,6 +1072,13 @@ mod tests {
         assert_eq!(p.model_id, "accounts/fireworks/models/qwen3");
     }
 
+    #[test]
+    fn test_parse_provider_prefix_case_insensitive() {
+        let p = parse_model_field("DeepSeek/deepseek-chat", &known_ids(&["deepseek"]));
+        assert_eq!(p.provider_hint.as_deref(), Some("deepseek"));
+        assert_eq!(p.model_id, "deepseek-chat");
+    }
+
     // Unknown left segment with colon is treated as bare model.
     #[test]
     fn test_parse_unknown_prefix_with_colon_treated_as_bare() {
@@ -1115,7 +1127,80 @@ mod tests {
         assert_eq!(map["pc"], "a-provider-3");
     }
 
-    // ── build_model_display_map ───────────────────────────────────────────────
+    #[test]
+    fn test_public_id_map_non_ascii_name_falls_back_to_provider_type() {
+        let mut providers = vec![
+            make_provider("p1", "深度求索", &["deepseek-chat"]),
+            make_provider("p2", "自定义一", &[]),
+            make_provider("p3", "自定义二", &[]),
+        ];
+        providers[0].provider_type = ProviderType::DeepSeek;
+        let map = build_provider_public_id_map(&providers);
+        assert_eq!(map["p1"], "deepseek");
+        assert_eq!(map["p2"], "custom");
+        assert_eq!(map["p3"], "custom-2");
+    }
+
+    #[test]
+    fn test_public_id_map_custom_prefix_wins() {
+        let mut providers = vec![
+            make_provider("p1", "DeepSeek", &["deepseek-chat"]),
+            make_provider("p2", "OpenAI", &["gpt-4o"]),
+        ];
+        providers[0].gateway_prefix = Some("ds".into());
+        let map = build_provider_public_id_map(&providers);
+        assert_eq!(map["p1"], "ds");
+        assert_eq!(map["p2"], "openai");
+
+        let known: HashSet<String> = map.values().cloned().collect();
+        let parsed = parse_model_field("ds/deepseek-chat", &known);
+        let targets = resolve_route_targets(&providers, &map, &parsed, false).unwrap();
+        assert_eq!(targets[0].0.id, "p1");
+    }
+
+    #[test]
+    fn test_public_id_map_auto_slug_skips_custom_prefix() {
+        let mut providers = vec![
+            make_provider("p1", "OpenAI", &[]),
+            make_provider("p2", "Other", &[]),
+        ];
+        providers[1].gateway_prefix = Some("openai".into());
+        let map = build_provider_public_id_map(&providers);
+        assert_eq!(map["p2"], "openai");
+        assert_eq!(map["p1"], "openai-2");
+    }
+
+    #[test]
+    fn test_public_id_map_invalid_or_duplicate_custom_prefix_falls_back() {
+        let mut providers = vec![
+            make_provider("p1", "Alpha", &[]),
+            make_provider("p2", "Beta", &[]),
+            make_provider("p3", "Gamma", &[]),
+        ];
+        providers[0].gateway_prefix = Some("shared".into());
+        providers[1].gateway_prefix = Some("shared".into());
+        providers[2].gateway_prefix = Some("Bad/Prefix".into());
+        let map = build_provider_public_id_map(&providers);
+        assert_eq!(map["p1"], "shared");
+        assert_eq!(map["p2"], "beta");
+        assert_eq!(map["p3"], "gamma");
+    }
+
+    #[test]
+    fn test_public_id_map_suffix_never_collides_with_other_slug() {
+        let providers = vec![
+            make_provider("pa", "A Provider", &[]),
+            make_provider("pb", "A Provider", &[]),
+            make_provider("pc", "A Provider 2", &[]),
+        ];
+        let map = build_provider_public_id_map(&providers);
+        let unique: HashSet<&String> = map.values().collect();
+        assert_eq!(unique.len(), 3);
+        assert_eq!(map["pa"], "a-provider");
+        assert_eq!(map["pb"], "a-provider-2");
+    }
+
+    // ── build_gateway_model_list ──────────────────────────────────────────────
 
     fn make_provider(id: &str, name: &str, model_ids: &[&str]) -> ProviderConfig {
         ProviderConfig {
@@ -1150,86 +1235,113 @@ mod tests {
             custom_headers: None,
             icon: None,
             builtin_id: None,
+            gateway_prefix: None,
             sort_order: 0,
             created_at: 0,
             updated_at: 0,
         }
     }
 
+    fn list_ids(
+        providers: &[ProviderConfig],
+        auto_routing: bool,
+        always_prefix: bool,
+    ) -> Vec<String> {
+        build_gateway_model_list(providers, auto_routing, always_prefix)
+            .iter()
+            .filter_map(|v| v["id"].as_str().map(str::to_string))
+            .collect()
+    }
+
     #[test]
-    fn test_display_map_slug_collision_uses_deduplicated_public_id() {
+    fn test_model_list_slug_collision_uses_deduplicated_public_id() {
         // "Open-AI" and "Open AI" → same base slug "open-ai".
         // p1 (id="p1") < p2 (id="p2") → p1 = "open-ai", p2 = "open-ai-2".
         let providers = vec![
             make_provider("p1", "Open-AI", &["gpt-4o", "shared-model"]),
             make_provider("p2", "Open AI", &["gpt-4", "shared-model"]),
         ];
-        let map = build_model_display_map(&providers);
-        // shared-model is on both → namespaced with deduplicated public IDs
         assert_eq!(
-            map[&("p1".to_string(), "shared-model".to_string())],
-            "open-ai/shared-model"
+            list_ids(&providers, false, false),
+            vec![
+                "gpt-4",
+                "gpt-4o",
+                "open-ai-2/shared-model",
+                "open-ai/shared-model",
+            ]
         );
-        assert_eq!(
-            map[&("p2".to_string(), "shared-model".to_string())],
-            "open-ai-2/shared-model"
-        );
-        // unique models stay bare
-        assert_eq!(map[&("p1".to_string(), "gpt-4o".to_string())], "gpt-4o");
-        assert_eq!(map[&("p2".to_string(), "gpt-4".to_string())], "gpt-4");
     }
 
     #[test]
-    fn test_display_map_unique_models_bare() {
+    fn test_model_list_unique_models_bare() {
         let providers = vec![
             make_provider("p1", "OpenAI", &["gpt-4o", "gpt-3.5-turbo"]),
             make_provider("p2", "Anthropic", &["claude-3-opus"]),
         ];
-        let map = build_model_display_map(&providers);
-        assert_eq!(map[&("p1".to_string(), "gpt-4o".to_string())], "gpt-4o");
         assert_eq!(
-            map[&("p1".to_string(), "gpt-3.5-turbo".to_string())],
-            "gpt-3.5-turbo"
-        );
-        assert_eq!(
-            map[&("p2".to_string(), "claude-3-opus".to_string())],
-            "claude-3-opus"
+            list_ids(&providers, false, false),
+            vec!["claude-3-opus", "gpt-3.5-turbo", "gpt-4o"]
         );
     }
 
     #[test]
-    fn test_display_map_collision_uses_slug_prefix() {
-        let providers = vec![
-            make_provider("p1", "OpenAI", &["gpt-4o", "custom-model"]),
-            make_provider("p2", "My Provider", &["custom-model"]),
-        ];
-        let map = build_model_display_map(&providers);
-        // gpt-4o is unique → bare
-        assert_eq!(map[&("p1".to_string(), "gpt-4o".to_string())], "gpt-4o");
-        // custom-model appears on both → namespaced
-        assert_eq!(
-            map[&("p1".to_string(), "custom-model".to_string())],
-            "openai/custom-model"
-        );
-        assert_eq!(
-            map[&("p2".to_string(), "custom-model".to_string())],
-            "my-provider/custom-model"
-        );
-    }
-
-    #[test]
-    fn test_display_map_disabled_provider_excluded() {
+    fn test_model_list_disabled_provider_excluded() {
         let mut providers = vec![
             make_provider("p1", "OpenAI", &["gpt-4o"]),
             make_provider("p2", "OtherAI", &["gpt-4o"]),
         ];
         // Disable p2 → no collision
         providers[1].enabled = false;
-        let map = build_model_display_map(&providers);
-        // Only p1 is enabled, gpt-4o is unique
-        assert_eq!(map[&("p1".to_string(), "gpt-4o".to_string())], "gpt-4o");
-        // p2 is disabled → not in map at all
-        assert!(!map.contains_key(&("p2".to_string(), "gpt-4o".to_string())));
+        assert_eq!(list_ids(&providers, false, false), vec!["gpt-4o"]);
+    }
+
+    #[test]
+    fn test_model_list_always_prefix_namespaces_every_entry() {
+        let mut providers = vec![
+            make_provider("p1", "DeepSeek", &["deepseek-chat"]),
+            make_provider("p2", "OpenAI", &["gpt-4o"]),
+        ];
+        providers[1].models[0].aliases = vec!["gpt".into()];
+        assert_eq!(
+            list_ids(&providers, false, true),
+            vec!["deepseek/deepseek-chat", "openai/gpt", "openai/gpt-4o"]
+        );
+        let entries = build_gateway_model_list(&providers, false, true);
+        assert_eq!(entries[0]["owned_by"], "DeepSeek");
+    }
+
+    #[test]
+    fn test_model_list_always_prefix_keeps_aggregated_entry_when_auto_routing() {
+        let providers = vec![
+            make_provider("p1", "OpenAI", &["gpt-5.5", "gpt-4o"]),
+            make_provider("p2", "OtherAI", &["gpt-5.5"]),
+        ];
+        assert_eq!(
+            list_ids(&providers, true, true),
+            vec![
+                "gpt-5.5",
+                "openai/gpt-4o",
+                "openai/gpt-5.5",
+                "otherai/gpt-5.5",
+            ]
+        );
+    }
+
+    #[test]
+    fn test_model_list_always_prefix_ids_resolve() {
+        let providers = vec![
+            make_provider("p1", "OpenAI", &["gpt-4o"]),
+            make_provider("p2", "深度求索", &["deepseek-chat"]),
+        ];
+        let map = build_provider_public_id_map(&providers);
+        let known: HashSet<String> = map.values().cloned().collect();
+        for id in list_ids(&providers, false, true) {
+            let parsed = parse_model_field(&id, &known);
+            assert!(parsed.provider_hint.is_some(), "{id} should be namespaced");
+            let targets = resolve_route_targets(&providers, &map, &parsed, false)
+                .unwrap_or_else(|_| panic!("{id} should resolve"));
+            assert_eq!(targets.len(), 1);
+        }
     }
 
     #[test]
@@ -1269,11 +1381,11 @@ mod tests {
             make_provider("p1", "OpenAI", &["gpt-5.5"]),
             make_provider("p2", "OtherAI", &["gpt-5.5"]),
         ];
-        let off = build_gateway_model_list(&providers, false);
+        let off = build_gateway_model_list(&providers, false, false);
         let off_ids: Vec<&str> = off.iter().filter_map(|v| v["id"].as_str()).collect();
         assert!(off_ids.iter().all(|id| id.contains('/')));
 
-        let on = build_gateway_model_list(&providers, true);
+        let on = build_gateway_model_list(&providers, true, false);
         let on_ids: Vec<&str> = on.iter().filter_map(|v| v["id"].as_str()).collect();
         assert!(on_ids.contains(&"gpt-5.5"));
         assert!(on_ids
@@ -1415,6 +1527,101 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn chat_completions_echoes_requested_model_in_prefix_mode() {
+        let mut headers = HeaderMap::new();
+        headers.insert(header::CONTENT_TYPE, "application/json".parse().unwrap());
+        let upstream_body = json!({
+            "id": "chatcmpl-upstream",
+            "object": "chat.completion",
+            "model": "deepseek-v4-pro",
+            "choices": [{
+                "index": 0,
+                "message": { "role": "assistant", "content": "ok" },
+                "finish_reason": "stop"
+            }],
+            "usage": { "prompt_tokens": 3, "completion_tokens": 2, "total_tokens": 5 }
+        })
+        .to_string();
+        let (upstream_base, _captures, upstream_task) =
+            spawn_mock_chat_upstream(headers, upstream_body).await;
+        let (app, handle, gateway_key, _) =
+            seed_chat_router_with_duplicate_model(&upstream_base).await;
+
+        let send = |app: Router| {
+            let gateway_key = gateway_key.clone();
+            async move {
+                let response = app
+                    .oneshot(
+                        Request::builder()
+                            .method(Method::POST)
+                            .uri("/v1/chat/completions")
+                            .header(header::AUTHORIZATION, format!("Bearer {}", gateway_key))
+                            .header(header::CONTENT_TYPE, "application/json")
+                            .body(Body::from(chat_request_body(false)))
+                            .unwrap(),
+                    )
+                    .await
+                    .unwrap();
+                assert_eq!(response.status(), StatusCode::OK);
+                let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+                serde_json::from_slice::<serde_json::Value>(&body).unwrap()
+            }
+        };
+
+        let off = send(app.clone()).await;
+        assert_eq!(off["model"], "deepseek-v4-pro");
+
+        crate::response_model::enable_provider_prefix_mode(&handle.conn).await;
+        let on = send(app).await;
+        assert_eq!(on["model"], "deepseek/deepseek-v4-pro");
+
+        upstream_task.abort();
+    }
+
+    #[tokio::test]
+    async fn chat_completions_stream_echoes_requested_model_in_prefix_mode() {
+        let mut headers = HeaderMap::new();
+        headers.insert(header::CONTENT_TYPE, "text/event-stream".parse().unwrap());
+        let upstream_body = concat!(
+            "data: {\"id\":\"chatcmpl-upstream\",\"object\":\"chat.completion.chunk\",\"model\":\"deepseek-v4-pro\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"ok\"},\"finish_reason\":null}],\"usage\":{\"prompt_tokens\":3,\"completion_tokens\":2,\"total_tokens\":5}}\n\n",
+            "data: [DONE]\n\n"
+        )
+        .to_string();
+        let (upstream_base, _captures, upstream_task) =
+            spawn_mock_chat_upstream(headers, upstream_body).await;
+        let (app, handle, gateway_key, _) =
+            seed_chat_router_with_duplicate_model(&upstream_base).await;
+        crate::response_model::enable_provider_prefix_mode(&handle.conn).await;
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/v1/chat/completions")
+                    .header(header::AUTHORIZATION, format!("Bearer {}", gateway_key))
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .body(Body::from(chat_request_body(true)))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let text = String::from_utf8(body.to_vec()).unwrap();
+        let models: Vec<String> = text
+            .lines()
+            .filter_map(|line| line.strip_prefix("data: "))
+            .filter_map(|data| serde_json::from_str::<serde_json::Value>(data).ok())
+            .filter_map(|value| value["model"].as_str().map(str::to_string))
+            .collect();
+        assert!(!models.is_empty(), "no model fields in stream: {text}");
+        assert!(models.iter().all(|m| m == "deepseek/deepseek-v4-pro"));
+
+        upstream_task.abort();
+    }
+
+    #[tokio::test]
     async fn chat_completions_sends_canonical_model_to_upstream_for_namespaced_stream() {
         let mut headers = HeaderMap::new();
         headers.insert(header::CONTENT_TYPE, "text/event-stream".parse().unwrap());
@@ -1446,6 +1653,69 @@ mod tests {
         let captured = captures.lock().unwrap();
         assert_eq!(captured.len(), 1);
         assert_eq!(captured[0].body["model"], "deepseek-v4-pro");
+
+        upstream_task.abort();
+    }
+
+    #[tokio::test]
+    async fn chat_completions_accepts_null_assistant_content_with_tool_calls() {
+        let mut headers = HeaderMap::new();
+        headers.insert(header::CONTENT_TYPE, "application/json".parse().unwrap());
+        let upstream_body = json!({
+            "id": "chatcmpl-upstream",
+            "object": "chat.completion",
+            "model": "deepseek-v4-pro",
+            "choices": [{
+                "index": 0,
+                "message": { "role": "assistant", "content": "ok" },
+                "finish_reason": "stop"
+            }],
+            "usage": { "prompt_tokens": 3, "completion_tokens": 2, "total_tokens": 5 }
+        })
+        .to_string();
+        let (upstream_base, captures, upstream_task) =
+            spawn_mock_chat_upstream(headers, upstream_body).await;
+        let (app, _handle, gateway_key, _) =
+            seed_chat_router_with_duplicate_model(&upstream_base).await;
+        // `stream` is omitted on purpose: OpenAI treats it as optional.
+        let request_body = json!({
+            "model": "deepseek/deepseek-v4-pro",
+            "messages": [
+                {
+                    "role": "assistant",
+                    "content": null,
+                    "tool_calls": [{
+                        "id": "call_1",
+                        "type": "function",
+                        "function": { "name": "get_time", "arguments": "{}" }
+                    }]
+                },
+                { "role": "tool", "tool_call_id": "call_1", "content": "1700000000" }
+            ]
+        })
+        .to_string();
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/v1/chat/completions")
+                    .header(header::AUTHORIZATION, format!("Bearer {}", gateway_key))
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .body(Body::from(request_body))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let captured = captures.lock().unwrap();
+        assert_eq!(captured.len(), 1);
+        let upstream_messages = &captured[0].body["messages"];
+        assert_eq!(upstream_messages[0]["role"], "assistant");
+        assert!(upstream_messages[0]["content"].is_null());
+        assert_eq!(upstream_messages[0]["tool_calls"][0]["id"], "call_1");
+        assert_eq!(upstream_messages[1]["tool_call_id"], "call_1");
 
         upstream_task.abort();
     }

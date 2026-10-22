@@ -764,6 +764,7 @@ pub async fn agent_query(
     stream_id: Option<String>,
     run_id: Option<String>,
     regenerate_user_message_id: Option<String>,
+    activate: Option<bool>,
 ) -> Result<(), String> {
     // For regeneration the stored user message is authoritative: the prompt
     // argument is ignored so edits saved before resend take effect.
@@ -771,13 +772,17 @@ pub async fn agent_query(
         let target = message::get_message(&state.sea_db, message_id)
             .await
             .map_err(|e| e.to_string())?;
-        if target.conversation_id != conversation_id || target.role != MessageRole::User {
+        if target.conversation_id != conversation_id
+            || target.role != MessageRole::User
+            || !target.is_active
+        {
             return Err(format!("Cannot regenerate message {message_id}"));
         }
         Some(target)
     } else {
         None
     };
+    let activate = regen_user_message.is_none() || activate.unwrap_or(true);
     let prompt = regen_user_message
         .as_ref()
         .map(|target| target.content.clone())
@@ -813,10 +818,11 @@ pub async fn agent_query(
         tokens: state.agent_cancel_tokens.clone(),
     };
     // Read resume state only after admission so a just-finished turn cannot be missed.
-    let session = agent_session::get_agent_session_by_conversation_id(&state.sea_db, &conversation_id)
-        .await
-        .map_err(|error| error.to_string())?
-        .ok_or("Agent session not found. Please switch to Agent mode first.")?;
+    let session =
+        agent_session::get_agent_session_by_conversation_id(&state.sea_db, &conversation_id)
+            .await
+            .map_err(|error| error.to_string())?
+            .ok_or("Agent session not found. Please switch to Agent mode first.")?;
     super::agent_status::emit_agent_stage(
         &app,
         &conversation_id,
@@ -851,6 +857,19 @@ pub async fn agent_query(
     let global_settings = aqbot_core::repo::settings::get_settings(&state.sea_db)
         .await
         .map_err(|e| format!("Failed to load application settings: {e}"))?;
+    let mut history = super::agent_history::load_history(session.sdk_context_json.as_deref())?;
+    if let Some(ref target) = regen_user_message {
+        let active_user_ids = message::list_messages(&state.sea_db, &conversation_id)
+            .await
+            .map_err(|error| error.to_string())?
+            .into_iter()
+            .filter(|message| message.role == MessageRole::User)
+            .map(|message| message.id)
+            .collect::<Vec<_>>();
+        history = super::agent_history::history_before_regeneration(
+            history, &active_user_ids, &target.id,
+        )?;
+    }
     let attachment_inputs = attachments.unwrap_or_default();
     // Regeneration reuses the attachments already persisted on the user message.
     let persisted_attachments = if let Some(ref target) = regen_user_message {
@@ -974,16 +993,26 @@ pub async fn agent_query(
     .await
     .map_err(|error| error.to_string())?;
     let assistant_message_id = if regen_user_message.is_some() {
-        super::agent_regen::create_agent_regen_placeholder(
+        let message_id = super::agent_regen::create_agent_regen_placeholder(
             &state.sea_db,
-            &app,
-            &conversation_id,
-            &user_message.id,
-            &run_id,
-            &real_provider_id,
-            &model_id,
+            super::agent_regen::AgentRegeneration {
+                conversation_id: &conversation_id,
+                user_message_id: &user_message.id,
+                provider_id: &real_provider_id,
+                model_id: &model_id,
+                is_active: activate,
+            },
         )
-        .await?
+        .await?;
+        let _ = app.emit(
+            "agent-message-id",
+            serde_json::json!({
+                "conversationId": conversation_id,
+                "assistantMessageId": message_id,
+                "runId": run_id,
+            }),
+        );
+        message_id
     } else {
         create_agent_assistant_placeholder(
             &state.sea_db,
@@ -1419,27 +1448,8 @@ pub async fn agent_query(
 
     let mut agent = Agent::new(agent_options).await.map_err(|e| e.to_string())?;
 
-    // Restore previous conversation context from the agent session
-    if let Some(ref ctx_json) = session.sdk_context_json {
-        match serde_json::from_str::<Vec<open_agent_sdk::Message>>(ctx_json) {
-            Ok(mut prev_messages) => {
-                if let Some(ref target) = regen_user_message {
-                    let after =
-                        super::agent_regen::count_active_user_messages_after(&state.sea_db, target)
-                            .await;
-                    super::agent_regen::truncate_agent_context_for_regen(&mut prev_messages, after);
-                }
-                tracing::info!(
-                    "[agent] Restored {} messages from previous session",
-                    prev_messages.len()
-                );
-                agent.messages = prev_messages;
-            }
-            Err(e) => {
-                tracing::warn!("[agent] Failed to deserialize sdk_context_json: {}", e);
-            }
-        }
-    }
+    agent.messages = history.messages;
+    history.prompt_ids.push(Some(user_message.id.clone()));
 
     tracing::info!(
         "[agent] Agent created for conversation {}, model {}",
@@ -2239,6 +2249,8 @@ pub async fn agent_query(
                 assistant_message_id: current_assistant_msg_id.as_deref(),
                 content: terminal_sdk_error.as_ref().map(|_| failed_content.as_str()),
                 sdk_context: sdk_messages.as_deref(),
+                sdk_prompt_ids: Some(&history.prompt_ids),
+                preserve_sdk_context: !activate,
                 usage: final_usage.as_ref(),
                 cost_usd,
                 cancelled: cancel_token.is_cancelled(),
@@ -2374,22 +2386,32 @@ pub async fn agent_query(
                 error: Some(&safe_error),
                 ..Default::default()
             },
-            running_guard.take().expect("Failed Agent initialization still owns admission"),
-        ).await;
+            running_guard
+                .take()
+                .expect("Failed Agent initialization still owns admission"),
+        )
+        .await;
         // Before a persisted assistant exists, the IPC rejection owns the UI error;
         // an empty terminal refresh would erase the optimistic error message.
         if let Some(assistant_message_id) = initial_assistant_id.as_deref() {
             if let Some(error) = terminal_error.as_ref() {
-                let _ = app.emit("agent-error", AgentErrorPayload {
-                    conversation_id: conversation_id.clone(),
-                    run_id: Some(run_id.clone()),
-                    assistant_message_id: Some(assistant_message_id.to_string()),
-                    message: filter_complete_agent_event_text(error),
-                });
+                let _ = app.emit(
+                    "agent-error",
+                    AgentErrorPayload {
+                        conversation_id: conversation_id.clone(),
+                        run_id: Some(run_id.clone()),
+                        assistant_message_id: Some(assistant_message_id.to_string()),
+                        message: filter_complete_agent_event_text(error),
+                    },
+                );
             }
             super::agent_lifecycle::emit_agent_run_terminal(
-                &app, &conversation_id, assistant_message_id, &stream_id,
-                outcome, terminal_error.clone(),
+                &app,
+                &conversation_id,
+                assistant_message_id,
+                &stream_id,
+                outcome,
+                terminal_error.clone(),
             );
         }
         return Err(terminal_error.unwrap_or(error));

@@ -638,7 +638,16 @@
     "templateDescCursor": "基于 VS Code 的 AI 原生编辑器，深度集成代码补全与对话",
     "autoModelRouting": "自动模型路由",
     "autoModelRoutingTooltip": "将多个服务商上相同的模型 ID 或别名聚合成一个，并在限流/故障时自动切换。",
-    "autoModelRoutingDesc": "开启后，当多个服务商配置了相同的模型 ID 或相同的别名时，网关对外呈现为一个模型名，并按服务商排序与可用性自动选择上游；限流或故障时会尝试其他源。使用「服务商/模型」可强制指定单一上游。"
+    "autoModelRoutingDesc": "开启后，当多个服务商配置了相同的模型 ID 或相同的别名时，网关对外呈现为一个模型名，并按服务商排序与可用性自动选择上游；限流或故障时会尝试其他源。使用「服务商/模型」可强制指定单一上游。",
+    "modelProviderPrefix": "模型 ID 添加服务商前缀",
+    "modelProviderPrefixTooltip": "在模型列表中为每个模型 ID 加上服务商前缀，便于在客户端中区分模型来源。",
+    "modelProviderPrefixDesc": "开启后，/v1/models 返回的模型 ID 统一为「服务商/模型」格式（如 deepseek/deepseek-chat），前缀默认由服务商名称生成，也可在下方自定义。请求时仍可直接使用不带前缀的模型 ID，响应中的 model 字段会返回请求时使用的名称。",
+    "providerPrefixes": "服务商前缀",
+    "providerPrefixesDesc": "自定义「服务商/模型」中的服务商前缀，留空则使用由服务商名称自动生成的前缀（显示为占位文字）。",
+    "providerPrefixesEmpty": "暂无已启用的服务商",
+    "providerPrefixInvalid": "前缀只能包含小写字母、数字和单个连字符，且不超过 32 个字符",
+    "providerPrefixDuplicate": "该前缀已被其他服务商使用",
+    "providerPrefixInputLabel": "{{name}} 的网关前缀"
   },
   "settings": {
     "contextStrategy": "上下文策略",
@@ -848,6 +857,8 @@
     "themeSystem": "跟随系统",
     "autoStart": "开机自启动",
     "showOnStart": "启动时显示窗口",
+    "showOnStartTrayFallbackHint": "系统托盘已关闭，为了能找回窗口，启动时将改为最小化",
+    "startMinimizedRequiresShowOnStart": "需先开启「启动时显示窗口」",
     "trayEnabled": "显示系统托盘",
     "trayEnabledDesc": "关闭后完全不显示托盘图标。关闭时最小化到托盘和释放界面进程会暂时不可用，原值会保留。",
     "trayCreateFailed": "无法创建系统托盘，关闭窗口将退出应用。",
@@ -877,6 +888,10 @@
     "fontFaceExtraBold": "特粗",
     "fontFaceBlack": "超粗",
     "fontFamily": "界面字体",
+    "fontSmoothing": "字体抗锯齿",
+    "fontSmoothingDesc": "「抗锯齿」以灰度方式渲染字形，笔画更纤细锐利；若觉得偏淡可保持「默认」。",
+    "fontSmoothingAuto": "默认",
+    "fontSmoothingAntialiased": "抗锯齿",
     "codeFontFamily": "代码字体",
     "chatFontSize": "对话字号",
     "chatLineHeight": "对话行高",
@@ -2768,6 +2783,8 @@
     "preparingConversation": "正在准备对话…"
   },
   "errors": {
+    "AGENT_REGEN_MESSAGE_MISSING": "找不到要重新生成的用户消息",
+    "AGENT_HISTORY_UNTRACKED": "此 Agent 历史缺少消息标识，无法安全定位重发轮次，请先清空 Agent 上下文再重试",
     "MEMORY_L1_TOO_LARGE": "常驻记忆为 {{bytes}} 字节，上限是 {{limit}}。",
     "MEMORY_L1_REVISION_CONFLICT": "常驻记忆已在其他地方更新，已重新加载最新版本。",
     "MEMORY_L1_READ_FAILED": "无法读取常驻记忆，修复前不能发送。",

@@ -638,7 +638,16 @@
     "templateDescCursor": "AI-native editor based on VS Code, with deep integration of code completion and chat",
     "autoModelRouting": "Automatic model routing",
     "autoModelRoutingTooltip": "Pool the same model ID or alias across providers and fail over on rate limits or outages.",
-    "autoModelRoutingDesc": "When enabled, the same model ID or alias on multiple providers is exposed as one model. The gateway chooses an upstream by provider order and availability, and fails over on rate limits or outages. Use provider/model to pin a single upstream."
+    "autoModelRoutingDesc": "When enabled, the same model ID or alias on multiple providers is exposed as one model. The gateway chooses an upstream by provider order and availability, and fails over on rate limits or outages. Use provider/model to pin a single upstream.",
+    "modelProviderPrefix": "Prefix model IDs with provider",
+    "modelProviderPrefixTooltip": "Add a provider prefix to every model ID in the model list so clients can tell where each model comes from.",
+    "modelProviderPrefixDesc": "When enabled, /v1/models lists every model ID as provider/model (e.g. deepseek/deepseek-chat). The prefix is derived from the provider name by default and can be customized below. Requests still accept model IDs without the prefix, and the model field in responses echoes the name used in the request.",
+    "providerPrefixes": "Provider prefixes",
+    "providerPrefixesDesc": "Customize the provider prefix used in provider/model. Leave blank to use the prefix generated from the provider name (shown as the placeholder).",
+    "providerPrefixesEmpty": "No enabled providers",
+    "providerPrefixInvalid": "Prefixes may only contain lowercase letters, digits and single hyphens, up to 32 characters",
+    "providerPrefixDuplicate": "This prefix is already used by another provider",
+    "providerPrefixInputLabel": "Gateway prefix for {{name}}"
   },
   "settings": {
     "contextStrategy": "Context strategy",
@@ -848,6 +857,8 @@
     "themeSystem": "System",
     "autoStart": "Start on Boot",
     "showOnStart": "Show on Start",
+    "showOnStartTrayFallbackHint": "The system tray is off, so AQBot will start minimized to keep the window reachable",
+    "startMinimizedRequiresShowOnStart": "Requires Show on Start",
     "trayEnabled": "Show system tray",
     "trayEnabledDesc": "When off, the tray icon is hidden. Minimize-to-tray and releasing the UI process stay saved but are unavailable until the tray is enabled again.",
     "trayCreateFailed": "Could not create the system tray. Closing the window will quit the app.",
@@ -877,6 +888,10 @@
     "fontFaceExtraBold": "Extra Bold",
     "fontFaceBlack": "Black",
     "fontFamily": "Interface Font",
+    "fontSmoothing": "Font Smoothing",
+    "fontSmoothingDesc": "Antialiased renders thinner, sharper glyphs via grayscale smoothing; switch back to Default if text looks too light.",
+    "fontSmoothingAuto": "Default",
+    "fontSmoothingAntialiased": "Antialiased",
     "codeFontFamily": "Code Font",
     "chatFontSize": "Chat Font Size",
     "chatLineHeight": "Chat Line Height",
@@ -2768,6 +2783,8 @@
     "preparingConversation": "Preparing conversation…"
   },
   "errors": {
+    "AGENT_REGEN_MESSAGE_MISSING": "The user message to regenerate could not be found",
+    "AGENT_HISTORY_UNTRACKED": "This Agent history has no message identifiers, so the retry turn cannot be located safely. Clear the Agent context before trying again",
     "MEMORY_L1_TOO_LARGE": "Always-on memory is {{bytes}} bytes; the limit is {{limit}}.",
     "MEMORY_L1_REVISION_CONFLICT": "Always-on memory was updated elsewhere. The latest version was reloaded.",
     "MEMORY_L1_READ_FAILED": "Always-on memory could not be read. Sending is blocked until this is fixed.",

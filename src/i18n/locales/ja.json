@@ -638,7 +638,16 @@
     "codexRepairVisibilityTargetProvider": "現在の model_provider: {{provider}}",
     "autoModelRouting": "自動モデルルーティング",
     "autoModelRoutingTooltip": "プロバイダ間で同じモデル ID またはエイリアスをプールし、レート制限または停止時にフェイルオーバーします。",
-    "autoModelRoutingDesc": "有効にすると、複数のプロバイダー上の同じモデル ID またはエイリアスが 1 つのモデルとして公開されます。ゲートウェイは、プロバイダーの順序と可用性に基づいてアップストリームを選択し、レート制限または停止時にフェールオーバーします。プロバイダー/モデルを使用して単一のアップストリームを固定します。"
+    "autoModelRoutingDesc": "有効にすると、複数のプロバイダー上の同じモデル ID またはエイリアスが 1 つのモデルとして公開されます。ゲートウェイは、プロバイダーの順序と可用性に基づいてアップストリームを選択し、レート制限または停止時にフェールオーバーします。プロバイダー/モデルを使用して単一のアップストリームを固定します。",
+    "modelProviderPrefix": "モデル ID にプロバイダーのプレフィックスを付ける",
+    "modelProviderPrefixTooltip": "モデル一覧のすべてのモデル ID にプロバイダーのプレフィックスを付け、クライアントでモデルの提供元を区別しやすくします。",
+    "modelProviderPrefixDesc": "有効にすると、/v1/models が返すモデル ID はすべてプロバイダー/モデルの形式（例: deepseek/deepseek-chat）になります。プレフィックスは既定でプロバイダー名から生成され、下でカスタマイズできます。リクエストではプレフィックスなしのモデル ID も引き続き使用でき、レスポンスの model フィールドにはリクエストで使用した名前が返されます。",
+    "providerPrefixes": "プロバイダーのプレフィックス",
+    "providerPrefixesDesc": "プロバイダー/モデルで使われるプロバイダーのプレフィックスをカスタマイズします。空欄の場合はプロバイダー名から生成されたプレフィックス（プレースホルダーに表示）が使われます。",
+    "providerPrefixesEmpty": "有効なプロバイダーがありません",
+    "providerPrefixInvalid": "プレフィックスには小文字、数字、単一のハイフンのみ使用でき、32 文字以内にする必要があります",
+    "providerPrefixDuplicate": "このプレフィックスは別のプロバイダーで使用されています",
+    "providerPrefixInputLabel": "{{name}} のゲートウェイプレフィックス"
   },
   "settings": {
     "contextStrategy": "コンテキスト戦略",
@@ -848,6 +857,8 @@
     "themeSystem": "システム",
     "autoStart": "起動時に開始",
     "showOnStart": "起動時に表示",
+    "showOnStartTrayFallbackHint": "システムトレイがオフのため、ウィンドウを呼び戻せるよう最小化して起動します",
+    "startMinimizedRequiresShowOnStart": "「起動時に表示」をオンにする必要があります",
     "trayEnabled": "システムトレイを表示",
     "trayEnabledDesc": "オフにするとトレイアイコンを完全に非表示にします。トレイへ最小化と UI プロセスの解放は一時的に使えなくなりますが、値は保持されます。",
     "trayCreateFailed": "システムトレイを作成できませんでした。ウィンドウを閉じるとアプリが終了します。",
@@ -877,6 +888,10 @@
     "fontFaceExtraBold": "極太",
     "fontFaceBlack": "ブラック",
     "fontFamily": "UIフォント",
+    "fontSmoothing": "フォントスムージング",
+    "fontSmoothingDesc": "「アンチエイリアス」はグレースケールで字形を描画し、文字が細くシャープになります。薄すぎる場合は「デフォルト」に戻してください。",
+    "fontSmoothingAuto": "デフォルト",
+    "fontSmoothingAntialiased": "アンチエイリアス",
     "codeFontFamily": "コードフォント",
     "chatFontSize": "チャットフォントサイズ",
     "chatLineHeight": "チャット行間",
@@ -2768,6 +2783,8 @@
     "preparingConversation": "会話を準備しています…"
   },
   "errors": {
+    "AGENT_REGEN_MESSAGE_MISSING": "再生成するユーザーメッセージが見つかりません",
+    "AGENT_HISTORY_UNTRACKED": "この Agent 履歴にはメッセージ識別子がなく、再試行するターンを安全に特定できません。Agent のコンテキストをクリアしてから再試行してください",
     "MEMORY_L1_TOO_LARGE": "常時メモリは {{bytes}} バイトで、上限は {{limit}} です。",
     "MEMORY_L1_REVISION_CONFLICT": "常時メモリが別の場所で更新されたため、最新版を再読み込みしました。",
     "MEMORY_L1_READ_FAILED": "常時メモリを読めません。修復するまで送信できません。",
